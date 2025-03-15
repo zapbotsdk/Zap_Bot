@@ -1,4 +1,4 @@
-# ⚡ ZapBot  
+# ⚡ ZapBot  V 1.0.0
 
 ## 🤖 Overview  
 *ZapBot* is a fast, intelligent, and versatile chatbot designed to enhance user interactions through smart automation and seamless integrations. Built with performance and scalability in mind, ZapBot can handle diverse tasks — from customer support to personalized recommendations.  
