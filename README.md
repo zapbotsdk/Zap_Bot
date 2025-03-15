@@ -25,7 +25,11 @@
 - *Deployment:* Docker, AWS  
 
 ---
+## 🧑🏻‍💻 Founder
 
+- *Kaveesha Nethum*
+
+---
 ## 💻 Installation  
 
 1. *Clone the repository:*  
