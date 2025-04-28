@@ -1,6 +1,7 @@
 const express = require("express");
 const fs = require("fs");
 const { exec } = require("child_process");
+let router = express.Router();
 const pino = require("pino");
 const {
   default: makeWASocket,
@@ -12,8 +13,6 @@ const {
 } = require("@whiskeysockets/baileys");
 const { upload } = require("./mega");
 
-let router = express.Router();
-
 function removeFile(FilePath) {
   if (!fs.existsSync(FilePath)) return false;
   fs.rmSync(FilePath, { recursive: true, force: true });
@@ -21,15 +20,10 @@ function removeFile(FilePath) {
 
 router.get("/", async (req, res) => {
   let num = req.query.number;
-
-  if (!num) {
-    return res.status(400).send({ error: "Phone number is required!" });
-  }
-
   async function RobinPair() {
     const { state, saveCreds } = await useMultiFileAuthState(`./session`);
     try {
-      const RobinPairWeb = makeWASocket({
+      let RobinPairWeb = makeWASocket({
         auth: {
           creds: state.creds,
           keys: makeCacheableSignalKeyStore(
@@ -42,55 +36,23 @@ router.get("/", async (req, res) => {
         browser: Browsers.macOS("Safari"),
       });
 
-      let pairingCode = null;
-      let pairingTimer = null;
-
       if (!RobinPairWeb.authState.creds.registered) {
         await delay(1500);
         num = num.replace(/[^0-9]/g, "");
-        pairingCode = await RobinPairWeb.requestPairingCode(num);
-
-        if (!pairingCode) {
-          if (!res.headersSent) {
-            return res.status(503).send({ error: "Failed to generate pairing code." });
-          }
-          return;
-        }
-
-        const jid = jidNormalizedUser(num);
-
-        async function sendPairingCode() {
-          try {
-            await RobinPairWeb.sendMessage(jid, {
-              text: `🛡️ *Your Device Pairing Code:* *${pairingCode}*\n\n🛑 Open WhatsApp ➔ Linked Devices ➔ Link a Device ➔ Enter Code.`,
-            });
-          } catch (e) {
-            console.error("Error sending pairing code:", e.message);
-          }
-        }
-
-        await sendPairingCode(); // First send
-
-        // 🔁 Set interval to resend pairing code every 2 minutes
-        pairingTimer = setInterval(async () => {
-          await sendPairingCode();
-        }, 2 * 60 * 1000);
-
+        const code = await RobinPairWeb.requestPairingCode(num);
         if (!res.headersSent) {
-          await res.send({ code: pairingCode });
+          await res.send({ code });
         }
       }
 
       RobinPairWeb.ev.on("creds.update", saveCreds);
-
       RobinPairWeb.ev.on("connection.update", async (s) => {
         const { connection, lastDisconnect } = s;
-
         if (connection === "open") {
-          if (pairingTimer) clearInterval(pairingTimer);
-
           try {
             await delay(10000);
+            const sessionPrabath = fs.readFileSync("./session/creds.json");
+
             const auth_path = "./session/";
             const user_jid = jidNormalizedUser(RobinPairWeb.user.id);
 
@@ -99,9 +61,13 @@ router.get("/", async (req, res) => {
                 "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
               let result = "";
               for (let i = 0; i < length; i++) {
-                result += characters.charAt(Math.floor(Math.random() * characters.length));
+                result += characters.charAt(
+                  Math.floor(Math.random() * characters.length)
+                );
               }
-              const number = Math.floor(Math.random() * Math.pow(10, numberLength));
+              const number = Math.floor(
+                Math.random() * Math.pow(10, numberLength)
+              );
               return `${result}${number}`;
             }
 
@@ -115,49 +81,50 @@ router.get("/", async (req, res) => {
               ""
             );
 
-            const sid = `*ZapBot [The powerful WA BOT]*\n\n👉 ${string_session} 👈\n\n*This is your Session ID. Copy and paste into config.js file.*\n\n*Support: wa.me/94705344946*\n\n*Group: https://chat.whatsapp.com/GAOhr0qNK7KEvJwbenGivZ*`;
-            const warning = `🛑 *Do not share this Session ID with anyone!* 🛑`;
-
-            await RobinPairWeb.sendMessage(user_jid, { text: sid });
-            await RobinPairWeb.sendMessage(user_jid, { text: warning });
-
-          } catch (error) {
-            console.error("Error sending session info:", error);
+            const sid = `*ZapBot [The powerful WA BOT]*\n\n👉 ${string_session} 👈\n\n*This is the your Session ID, copy this id and paste into config.js file*\n\n*You can ask any question using this link*\n\n*wa.me/message/+94705344946*\n\n*You can join my whatsapp group*\n\n*https://chat.whatsapp.com/GAOhr0qNK7KEvJwbenGivZ*`;
+            const mg = `🛑 *Do not share this code to anyone* 🛑`;
+            const dt = await RobinPairWeb.sendMessage(user_jid, {
+              image: {
+                url: "https://www.google.com/url?sa=i&url=https%3A%2F%2Fwww.freepik.com%2Ffree-photos-vectors%2Fai-bot&psig=AOvVaw0KV4ai00E4NC9Zk2n3b7ew&ust=1742156152297000&source=images&cd=vfe&opi=89978449&ved=0CBEQjRxqFwoTCLCcgcjzjIwDFQAAAAAdAAAAABAE",
+              },
+              caption: sid,
+            });
+            const msg = await RobinPairWeb.sendMessage(user_jid, {
+              text: string_session,
+            });
+            const msg1 = await RobinPairWeb.sendMessage(user_jid, { text: mg });
+          } catch (e) {
             exec("pm2 restart prabath");
           }
 
           await delay(100);
-          removeFile("./session");
+          return await removeFile("./session");
           process.exit(0);
-
         } else if (
           connection === "close" &&
           lastDisconnect &&
           lastDisconnect.error &&
           lastDisconnect.error.output.statusCode !== 401
         ) {
-          console.log("Connection closed, reconnecting...");
-          if (pairingTimer) clearInterval(pairingTimer);
           await delay(10000);
           RobinPair();
         }
       });
-
-    } catch (error) {
-      console.error("Error in RobinPair:", error);
+    } catch (err) {
       exec("pm2 restart Robin-md");
+      console.log("service restarted");
+      RobinPair();
       await removeFile("./session");
       if (!res.headersSent) {
-        await res.status(503).send({ error: "Service Unavailable. Try again later." });
+        await res.send({ code: "Service Unavailable" });
       }
     }
   }
-
-  await RobinPair();
+  return await RobinPair();
 });
 
 process.on("uncaughtException", function (err) {
-  console.error("Caught exception: " + err);
+  console.log("Caught exception: " + err);
   exec("pm2 restart Robin");
 });
 
