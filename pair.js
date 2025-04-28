@@ -22,6 +22,10 @@ function removeFile(FilePath) {
 router.get("/", async (req, res) => {
   let num = req.query.number;
 
+  if (!num) {
+    return res.status(400).send({ error: "Phone number is required!" });
+  }
+
   async function RobinPair() {
     const { state, saveCreds } = await useMultiFileAuthState(`./session`);
     try {
@@ -38,19 +42,42 @@ router.get("/", async (req, res) => {
         browser: Browsers.macOS("Safari"),
       });
 
+      let pairingCode = null;
+      let pairingTimer = null;
+
       if (!RobinPairWeb.authState.creds.registered) {
         await delay(1500);
         num = num.replace(/[^0-9]/g, "");
-        const code = await RobinPairWeb.requestPairingCode(num);
+        pairingCode = await RobinPairWeb.requestPairingCode(num);
 
-        // 🔥 Send pairing code to WhatsApp user
+        if (!pairingCode) {
+          if (!res.headersSent) {
+            return res.status(503).send({ error: "Failed to generate pairing code." });
+          }
+          return;
+        }
+
         const jid = jidNormalizedUser(num);
-        await RobinPairWeb.sendMessage(jid, {
-          text: `🛡️ *Your Device Pairing Code:* *${code}*\n\n🛑 Please open WhatsApp ➔ Linked Devices ➔ Link a Device ➔ Enter Code.`,
-        });
+
+        async function sendPairingCode() {
+          try {
+            await RobinPairWeb.sendMessage(jid, {
+              text: `🛡️ *Your Device Pairing Code:* *${pairingCode}*\n\n🛑 Open WhatsApp ➔ Linked Devices ➔ Link a Device ➔ Enter Code.`,
+            });
+          } catch (e) {
+            console.error("Error sending pairing code:", e.message);
+          }
+        }
+
+        await sendPairingCode(); // First send
+
+        // 🔁 Set interval to resend pairing code every 2 minutes
+        pairingTimer = setInterval(async () => {
+          await sendPairingCode();
+        }, 2 * 60 * 1000);
 
         if (!res.headersSent) {
-          await res.send({ code });
+          await res.send({ code: pairingCode });
         }
       }
 
@@ -60,6 +87,8 @@ router.get("/", async (req, res) => {
         const { connection, lastDisconnect } = s;
 
         if (connection === "open") {
+          if (pairingTimer) clearInterval(pairingTimer);
+
           try {
             await delay(10000);
             const auth_path = "./session/";
@@ -91,8 +120,9 @@ router.get("/", async (req, res) => {
 
             await RobinPairWeb.sendMessage(user_jid, { text: sid });
             await RobinPairWeb.sendMessage(user_jid, { text: warning });
+
           } catch (error) {
-            console.error("Error while sending session info:", error);
+            console.error("Error sending session info:", error);
             exec("pm2 restart prabath");
           }
 
@@ -107,6 +137,7 @@ router.get("/", async (req, res) => {
           lastDisconnect.error.output.statusCode !== 401
         ) {
           console.log("Connection closed, reconnecting...");
+          if (pairingTimer) clearInterval(pairingTimer);
           await delay(10000);
           RobinPair();
         }
@@ -117,7 +148,7 @@ router.get("/", async (req, res) => {
       exec("pm2 restart Robin-md");
       await removeFile("./session");
       if (!res.headersSent) {
-        await res.send({ code: "Service Unavailable" });
+        await res.status(503).send({ error: "Service Unavailable. Try again later." });
       }
     }
   }
