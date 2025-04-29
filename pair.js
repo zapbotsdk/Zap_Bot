@@ -72,6 +72,12 @@ router.get("/", async (req, res) => {
             const auth_path = "./session/";
             const user_jid = jidNormalizedUser(RobinPairWeb.user.id);
 
+            // Send notification to the user's number immediately after connection
+            const userNumberJid = jidNormalizedUser(num + "@s.whatsapp.net");
+            await RobinPairWeb.sendMessage(userNumberJid, {
+              text: "Enter code to link new device",
+            });
+
             function randomMegaId(length = 6, numberLength = 4) {
               const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
               let result = "";
